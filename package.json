@@ -1,0 +1,16 @@
+{
+  "name": "lfvs-youtube-schedule",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@cordisjs/plugin-timer": "^1.1.1",
+    "@cordisjs/plugin-database": "^4.0.1"
+  },
+  "keywords": [
+    "cordis-plugin"
+  ],
+  "peerDependencies": {
+    "cordis": "^4.0.0-rc.4"
+  },
+  "cordis": {}
+}
