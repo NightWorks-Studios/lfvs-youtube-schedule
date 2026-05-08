@@ -2,7 +2,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import {} from '@cordisjs/plugin-timer'
 import {} from '@cordisjs/plugin-database'
-import { DETAILED_MILESTONES, LfvsVideo, LfvsVideoStat } from '../../lfvs-core/src/index'
+import { DETAILED_MILESTONES, LfvsVideo, LfvsVideoStat } from 'lfvs-core'
 
 export interface Config {
   enablePolling: boolean
@@ -40,7 +40,7 @@ export class YoutubeScheduleService extends Service {
   private uploaderIntervalId?: () => void
 
   constructor(ctx: Context, public config: Config) {
-    super(ctx, 'lfvs.youtube.schedule', true)
+    super(ctx, 'lfvs.youtube.schedule')
     Promise.resolve().then(() => this.start())
   }
 
