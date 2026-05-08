@@ -23,8 +23,10 @@ export declare class YoutubeScheduleService extends Service {
     private isScanningUploaders;
     private videoIntervalId?;
     private uploaderIntervalId?;
+    private abortController;
     constructor(ctx: Context, config: Config);
     protected start(): Promise<void>;
+    private sleep;
     private startPolling;
     private stopPolling;
     private calculateHybridInterval;
