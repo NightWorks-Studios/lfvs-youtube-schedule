@@ -11,6 +11,8 @@ export interface Config {
     approachingMaxInterval: number;
     proximitySensitivity: number;
     jitterPercentage: number;
+    maxVideoProcess: number;
+    maxUploaderProcess: number;
 }
 export declare const Config: z<Config>;
 export declare class YoutubeScheduleService extends Service {

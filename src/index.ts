@@ -15,6 +15,8 @@ export interface Config {
   approachingMaxInterval: number
   proximitySensitivity: number
   jitterPercentage: number
+  maxVideoProcess: number
+  maxUploaderProcess: number
 }
 
 export const Config: z<Config> = z.object({
@@ -27,7 +29,9 @@ export const Config: z<Config> = z.object({
   approachingMinInterval: z.number().default(60).description('逼近里程碑模式：最小抓取间隔 (秒)'),
   approachingMaxInterval: z.number().default(3600).description('逼近里程碑模式：最大抓取间隔 (秒)'),
   proximitySensitivity: z.number().default(5).description('逼近模式：距离敏感度系数'),
-  jitterPercentage: z.number().step(0.01).default(0.1).description('防止并发的随机抖动百分比 (0~1)')
+  jitterPercentage: z.number().step(0.01).default(0.1).description('防止并发的随机抖动百分比 (0~1)'),
+  maxVideoProcess: z.number().default(200).description('单次轮询更新的视频最大数量'),
+  maxUploaderProcess: z.number().default(300).description('单次轮询扫描的 UP 主最大数量')
 })
 
 export class YoutubeScheduleService extends Service {
@@ -111,7 +115,7 @@ export class YoutubeScheduleService extends Service {
 
     const roundStart = Date.now()
     const windowMs = this.config.queueScanInterval
-    const MAX_PROCESS = 200 // 10秒内最大处理量
+    const MAX_PROCESS = this.config.maxVideoProcess
     const MIN_INTERVAL_MS = windowMs / MAX_PROCESS
 
     let totalSuccess = 0
@@ -185,6 +189,32 @@ export class YoutubeScheduleService extends Service {
       }
 
       const { stat: newStat, info } = res.data
+      
+      // Auto-Heal Mechanism
+      let videoUploaderId = video.uploaderId
+      let needsMetadataUpdate = false
+      if (info && (!videoUploaderId || !video.title || !video.pic || !video.pubdate)) {
+        if (!videoUploaderId && info.uploader) {
+          const upCheck = await this.ctx.database.get('lfvs_uploader', { 
+            uid: info.uploader.uid, 
+            platform: this.platform 
+          }, ['id'])
+          
+          if (upCheck.length > 0) {
+            videoUploaderId = upCheck[0].id
+          } else {
+            const createdUp = await this.ctx.database.create('lfvs_uploader', {
+              uid: info.uploader.uid,
+              name: info.uploader.name,
+              platform: this.platform,
+              isSubscribed: false,
+              status: 'active'
+            })
+            videoUploaderId = createdUp.id
+          }
+        }
+        needsMetadataUpdate = true
+      }
       
       const latestStats = await this.ctx.database.get('lfvs_video_stat', { videoId: video.id }, {
         sort: { timestamp: 'desc' },
@@ -263,13 +293,20 @@ export class YoutubeScheduleService extends Service {
         await this.ctx.database.set('lfvs_video_stat', { id: latestStat.id }, { timestamp: now })
       }
 
-      await this.ctx.database.set('lfvs_video', { id: video.id }, {
+      const updatePayload: any = {
         updateInterval: Math.round(newInterval),
         nextUpdateAt: nextUpdateAt,
         title: info.title,
         pic: info.pic,
         currentView: newStat.view || 0
-      })
+      }
+      
+      if (needsMetadataUpdate) {
+        if (videoUploaderId) updatePayload.uploaderId = videoUploaderId
+        if (info.pubdate) updatePayload.pubdate = info.pubdate
+      }
+
+      await this.ctx.database.set('lfvs_video', { id: video.id }, updatePayload)
 
       const fullNewStat: LfvsVideoStat = { id: 0, videoId: video.id, timestamp: now, view: newStat.view||0, danmaku: newStat.danmaku||0, reply: newStat.reply||0, favorite: newStat.favorite||0, coin: newStat.coin||0, share: newStat.share||0, like: newStat.like||0 }
       this.ctx.emit('lfvs/video-updated', this.platform, video.videoId, 'success', costMs, latestStat as any, fullNewStat)
@@ -296,7 +333,7 @@ export class YoutubeScheduleService extends Service {
         isSubscribed: true,
         status: 'active',
         platform: this.platform
-      })
+      }, { limit: this.config.maxUploaderProcess, sort: { id: 'asc' } })
       const dbCostMs = Date.now() - dbStart
 
       if (uploaders.length > 0) {
@@ -324,8 +361,9 @@ export class YoutubeScheduleService extends Service {
         if (recentVideos.length === 0) continue
 
         // 优化: 一次性查询当前 UP 主在这个平台下的所有已有视频，避免在循环中重复查询
+        const videoIds = recentVideos.map(v => v.videoId)
         const existingVideosDb = await this.ctx.database.get('lfvs_video', { 
-          uploaderId: uploader.id, 
+          videoId: videoIds, 
           platform: this.platform 
         }, ['videoId'])
         const existingVideoIds = new Set(existingVideosDb.map(v => v.videoId))
