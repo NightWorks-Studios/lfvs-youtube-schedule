@@ -110,45 +110,42 @@ export class YoutubeScheduleService extends Service {
     this.isUpdatingVideos = true
 
     const roundStart = Date.now()
+    const windowMs = this.config.queueScanInterval
+    const MAX_PROCESS = 200 // 10秒内最大处理量
+    const MIN_INTERVAL_MS = windowMs / MAX_PROCESS
+
     let totalSuccess = 0
     let totalFailure = 0
     let totalProcessed = 0
 
     try {
       const now = new Date()
-      const BATCH_SIZE = 50
 
-      let hasMore = true
-      while (hasMore) {
-        const dbStart = Date.now()
-        const videosToUpdate = await this.ctx.database.get('lfvs_video', {
-          isSubscribed: true,
-          status: 'active',
-          platform: this.platform,
-          nextUpdateAt: { $lte: now }
-        }, { limit: BATCH_SIZE })
-        const dbCostMs = Date.now() - dbStart
+      const dbStart = Date.now()
+      const videosToUpdate = await this.ctx.database.get('lfvs_video', {
+        isSubscribed: true,
+        status: 'active',
+        platform: this.platform,
+        nextUpdateAt: { $lte: now }
+      }, { limit: MAX_PROCESS, sort: { nextUpdateAt: 'asc' } })
+      const dbCostMs = Date.now() - dbStart
 
-        if (videosToUpdate.length === 0) {
-          hasMore = false
-          break
-        }
+      if (videosToUpdate.length === 0) return
 
-        this.ctx.emit('lfvs/schedule-round-start', this.platform, 'video', dbCostMs, videosToUpdate.length)
+      this.ctx.emit('lfvs/schedule-round-start', this.platform, 'video', dbCostMs, videosToUpdate.length)
 
-        for (const video of videosToUpdate) {
-          const result = await this.processSingleVideo(video)
-          if (result) totalSuccess++
-          else totalFailure++
-          totalProcessed++
-          
-          await new Promise(resolve => setTimeout(resolve, 50))
-        }
+      const intervalMs = Math.max(MIN_INTERVAL_MS, windowMs / videosToUpdate.length)
+      totalProcessed = videosToUpdate.length
 
-        if (videosToUpdate.length < BATCH_SIZE) {
-          hasMore = false
-        }
-      }
+      await Promise.all(videosToUpdate.map(async (video, index) => {
+        // 分摊延迟
+        await new Promise(resolve => setTimeout(resolve, index * intervalMs))
+
+        const result = await this.processSingleVideo(video)
+        if (result) totalSuccess++
+        else totalFailure++
+      }))
+
     } finally {
       this.isUpdatingVideos = false
       if (totalProcessed > 0) {
@@ -242,7 +239,8 @@ export class YoutubeScheduleService extends Service {
         const timeDelta = (now.getTime() - latestStat.timestamp.getTime()) / (1000 * 60)
         newInterval = this.calculateHybridInterval(viewDelta, timeDelta, distance)
       } else {
-        newInterval = this.config.normalMaxInterval
+        newInterval = 300 // 第一次扫描到后下一次扫描时间固定为5分钟
+        this.ctx.emit('lfvs/new-video-found', video as LfvsVideo)
       }
 
       const nextUpdateAt = new Date(Date.now() + newInterval * 1000)
@@ -259,9 +257,7 @@ export class YoutubeScheduleService extends Service {
           like: newStat.like || 0
         })
         if (milestonesToCreate.length > 0) {
-          for (const m of milestonesToCreate) {
-            await this.ctx.database.create('lfvs_milestone', m)
-          }
+          await this.ctx.database.upsert('lfvs_milestone', milestonesToCreate)
         }
       } else if (latestStat) {
         await this.ctx.database.set('lfvs_video_stat', { id: latestStat.id }, { timestamp: now })
@@ -325,12 +321,25 @@ export class YoutubeScheduleService extends Service {
 
         totalSuccess++
         const recentVideos = res.data
-        
+        if (recentVideos.length === 0) continue
+
+        // 优化: 一次性查询当前 UP 主在这个平台下的所有已有视频，避免在循环中重复查询
+        const existingVideosDb = await this.ctx.database.get('lfvs_video', { 
+          uploaderId: uploader.id, 
+          platform: this.platform 
+        }, ['videoId'])
+        const existingVideoIds = new Set(existingVideosDb.map(v => v.videoId))
+
+        let uploaderNameUpdated = false
+        const now = new Date()
+
         for (const vInfo of recentVideos) {
-          const exists = await this.ctx.database.get('lfvs_video', { videoId: vInfo.videoId, platform: this.platform })
-          if (exists.length === 0) {
-            const now = new Date()
-            await this.ctx.database.set('lfvs_uploader', { id: uploader.id }, { name: vInfo.uploader.name })
+          if (!existingVideoIds.has(vInfo.videoId)) {
+            // 只在发现新视频且未更新过名字时，更新一次 UP 主名字
+            if (!uploaderNameUpdated && uploader.name !== vInfo.uploader.name) {
+              await this.ctx.database.set('lfvs_uploader', { id: uploader.id }, { name: vInfo.uploader.name })
+              uploaderNameUpdated = true
+            }
             
             const newVideo = await this.ctx.database.create('lfvs_video', {
               videoId: vInfo.videoId,
@@ -346,7 +355,7 @@ export class YoutubeScheduleService extends Service {
               status: 'active'
             })
 
-            this.ctx.emit('lfvs/new-video-found', newVideo as LfvsVideo)
+            existingVideoIds.add(vInfo.videoId) // 更新内存中的集合
           }
         }
         await new Promise(resolve => setTimeout(resolve, 500))
