@@ -346,6 +346,7 @@ export class YoutubeScheduleService extends Service {
       this.ctx.emit('lfvs/video-updated', this.platform, video.videoId, 'success', costMs, latestStat as any, fullNewStat)
       return true
     } catch (error) {
+      this.ctx.emit('lfvs/log', 'youtube-schedule', 'error', error)
       return false
     }
   }
