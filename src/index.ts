@@ -54,7 +54,9 @@ export class YoutubeScheduleService extends Service {
         this.abortController.abort()
       }
     })
-    Promise.resolve().then(() => this.start())
+    Promise.resolve().then(() => this.start().catch(e => {
+      this.ctx.emit('lfvs/log', 'youtube-schedule', 'error', `启动失败: ${e.message}`)
+    }))
   }
 
   protected async start() {
@@ -170,19 +172,22 @@ export class YoutubeScheduleService extends Service {
       const intervalMs = Math.max(MIN_INTERVAL_MS, windowMs / videosToUpdate.length)
       totalProcessed = videosToUpdate.length
 
-      await Promise.all(videosToUpdate.map(async (video, index) => {
+      for (const video of videosToUpdate) {
+        if (this.abortController.signal.aborted) break
         try {
-          await this.sleep(index * intervalMs)
-          if (this.abortController.signal.aborted) return
-
           const result = await this.processSingleVideo(video)
           if (result) totalSuccess++
           else totalFailure++
         } catch (error: any) {
-          if (error.message === 'Context disposed') return
-          throw error
+          if (error.message === 'Context disposed') break
+          totalFailure++
+          this.ctx.emit('lfvs/log', 'youtube-schedule', 'error', `updateVideos 异常: ${error.message}`)
         }
-      }))
+        // 串行间隔，避免 API 过载
+        if (!this.abortController.signal.aborted) {
+          try { await this.sleep(intervalMs) } catch { break }
+        }
+      }
 
     } finally {
       this.isUpdatingVideos = false
@@ -258,11 +263,12 @@ export class YoutubeScheduleService extends Service {
 
       let dataHasChanged = true
       if (latestStat) {
+        const n = (v: number | null | undefined) => v ?? 0
         if (
-          newStat.view === latestStat.view && newStat.danmaku === latestStat.danmaku &&
-          newStat.reply === latestStat.reply && newStat.favorite === latestStat.favorite &&
-          newStat.coin === latestStat.coin && newStat.share === latestStat.share &&
-          newStat.like === latestStat.like
+          n(newStat.view) === latestStat.view && n(newStat.danmaku) === latestStat.danmaku &&
+          n(newStat.reply) === latestStat.reply && n(newStat.favorite) === latestStat.favorite &&
+          n(newStat.coin) === latestStat.coin && n(newStat.share) === latestStat.share &&
+          n(newStat.like) === latestStat.like
         ) {
           dataHasChanged = false
         }
@@ -345,8 +351,9 @@ export class YoutubeScheduleService extends Service {
       const fullNewStat: LfvsVideoStat = { id: 0, videoId: video.id, timestamp: now, view: newStat.view||0, danmaku: newStat.danmaku||0, reply: newStat.reply||0, favorite: newStat.favorite||0, coin: newStat.coin||0, share: newStat.share||0, like: newStat.like||0 }
       this.ctx.emit('lfvs/video-updated', this.platform, video.videoId, 'success', costMs, latestStat as any, fullNewStat)
       return true
-    } catch (error) {
-      this.ctx.emit('lfvs/log', 'youtube-schedule', 'error', error)
+    } catch (error: any) {
+      this.ctx.emit('lfvs/log', 'youtube-schedule', 'error',
+        `processSingleVideo 异常 [${video.videoId}]: ${error.message}`, error.stack)
       return false
     }
   }
