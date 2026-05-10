@@ -2,7 +2,14 @@ import { Context } from 'cordis'
 import z from 'schemastery'
 import {} from '@cordisjs/plugin-timer'
 import {} from '@cordisjs/plugin-database'
+import {} from '@cordisjs/plugin-webui'
 import { AbstractScheduleService, ScheduleConfig } from 'lfvs-core'
+
+declare module '@cordisjs/plugin-webui' {
+  interface Events {
+    'youtube-schedule/status'(): any
+  }
+}
 
 export interface Config extends ScheduleConfig {}
 
@@ -27,6 +34,22 @@ export class YoutubeScheduleService extends AbstractScheduleService {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'lfvs.youtube.schedule', config)
+
+    ctx.inject(['webui'], (ctx) => {
+      ctx.webui.addEntry({
+        path: 'lfvs-youtube-schedule',
+        base: import.meta.url,
+        dev: '../client/index.ts',
+        prod: '../dist/manifest.json'
+      })
+      ctx.webui.addListener('youtube-schedule/status', () => {
+        const stats = this.lastRoundStats
+        return {
+          ...stats,
+          load: stats.maxVideoProcess > 0 ? stats.totalProcessed / stats.maxVideoProcess : 0
+        }
+      })
+    })
   }
 }
 

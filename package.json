@@ -12,9 +12,19 @@
     "cordis-plugin"
   ],
   "peerDependencies": {
-    "cordis": "^4.0.0-rc.4"
+    "@cordisjs/plugin-webui": "^0.7.0",
+    "cordis": "^4.0.0-rc.4",
+    "vue": "^3.0.0"
   },
-  "cordis": {},
+  "cordis": {
+    "public": [
+      "client",
+      "dist"
+    ]
+  },
   "type": "module",
-  "typings": "lib/index.d.ts"
+  "typings": "lib/index.d.ts",
+  "devDependencies": {
+    "@cordisjs/client": "^0.7.0"
+  }
 }
