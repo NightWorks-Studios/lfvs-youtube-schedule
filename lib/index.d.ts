@@ -1,11 +1,6 @@
 import { Context } from 'cordis';
 import z from 'schemastery';
 import { AbstractScheduleService, ScheduleConfig } from 'lfvs-core';
-declare module '@cordisjs/plugin-webui' {
-    interface Events {
-        'youtube-schedule/status'(): any;
-    }
-}
 export interface Config extends ScheduleConfig {
 }
 export declare const Config: z<Config>;

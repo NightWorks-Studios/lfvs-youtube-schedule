@@ -12,8 +12,8 @@
     "cordis-plugin"
   ],
   "peerDependencies": {
-    "@cordisjs/plugin-webui": "^0.7.0",
-    "cordis": "^4.0.0-rc.4",
+    "@cordisjs/plugin-webui": "^0.8.2",
+    "cordis": "^4.0.0-rc.6",
     "vue": "^3.0.0"
   },
   "cordis": {
@@ -25,6 +25,6 @@
   "type": "module",
   "typings": "lib/index.d.ts",
   "devDependencies": {
-    "@cordisjs/client": "^0.7.0"
+    "@cordisjs/client": "^0.8.2"
   }
 }

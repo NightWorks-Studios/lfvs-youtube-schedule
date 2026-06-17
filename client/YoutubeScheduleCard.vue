@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { send } from '@cordisjs/client'
+import { useRpc } from '@cordisjs/client'
+
+const rpc = useRpc<any>()
 
 const data = ref<any>(null)
 let timer: number | undefined
 
 const fetchStatus = async () => {
-  try { data.value = await send('youtube-schedule/status') } catch {}
+  try { data.value = await rpc.value?.['youtube-schedule/status']?.() } catch {}
 }
 
 onMounted(() => { fetchStatus(); timer = window.setInterval(fetchStatus, 500) })
