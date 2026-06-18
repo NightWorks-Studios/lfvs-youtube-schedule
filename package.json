@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "lib/index.js",
   "dependencies": {
-    "@cordisjs/plugin-timer": "^1.1.1",
-    "@cordisjs/plugin-database": "^4.0.1",
+    "@cordisjs/plugin-timer": "^1.1.2",
+    "@cordisjs/plugin-database": "^4.1.0",
     "lfvs-core": "*",
     "schemastery": "^3.18.0"
   },
